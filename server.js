@@ -54,18 +54,16 @@ async function startSock() {
 
       console.log("❌ Connection closed. Reconnect:", shouldReconnect)
 
-      if (shouldReconnect) {
-        startSock()
-      }
+      if (shouldReconnect) startSock()
     }
   })
 }
 
-// START SOCKET ON BOOT
+// START SOCKET
 startSock()
 
 // ===============================
-// HOME ROUTE (PREVENT 502)
+// HOME ROUTE (FIXES 502)
 // ===============================
 app.get("/", (req, res) => {
   res.send("✅ Snow Session Server is running")
@@ -76,7 +74,7 @@ app.get("/", (req, res) => {
 // ===============================
 app.get("/qr", async (req, res) => {
   if (!latestQR) {
-    return res.send("❌ No QR available. Open WhatsApp pairing first.")
+    return res.send("❌ No QR available. Restart service or use pairing.")
   }
 
   const qrImage = await qrcode.toDataURL(latestQR)
