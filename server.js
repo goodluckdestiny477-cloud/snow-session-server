@@ -1,83 +1,108 @@
 const express = require("express")
+const fs = require("fs")
+const path = require("path")
+const P = require("pino")
+const qrcode = require("qrcode")
 const {
   default: makeWASocket,
-  useMultiFileAuthState
+  useMultiFileAuthState,
+  DisconnectReason
 } = require("@whiskeysockets/baileys")
-const P = require("pino")
-const QRCode = require("qrcode")
-const { v4: uuidv4 } = require("uuid")
-const fs = require("fs")
 
 const app = express()
 app.use(express.json())
 
-/* =========================
-   QR PAIRING
-========================= */
-app.get("/pair/qr", async (req, res) => {
-  const sessionId = uuidv4()
-  const sessionPath = `./sessions/${sessionId}`
-  fs.mkdirSync(sessionPath, { recursive: true })
+const PORT = process.env.PORT || 3000
+const SESSION_DIR = "./auth"
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+let sock
+let pairingInProgress = false
 
-  const sock = makeWASocket({
+// 🔹 Start WhatsApp socket
+async function startSock() {
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
+
+  sock = makeWASocket({
+    logger: P({ level: "silent" }),
     auth: state,
-    logger: P({ level: "silent" })
+    printQRInTerminal: false
   })
 
-  sock.ev.on("connection.update", async (update) => {
-    if (update.qr) {
-      const qr = await QRCode.toDataURL(update.qr)
-      res.json({
-        success: true,
-        type: "qr",
-        sessionId,
-        qr
-      })
+  sock.ev.on("creds.update", saveCreds)
+
+  sock.ev.on("connection.update", (update) => {
+    const { connection, lastDisconnect } = update
+
+    if (connection === "open") {
+      console.log("✅ WhatsApp Connected")
+    }
+
+    if (connection === "close") {
+      const shouldReconnect =
+        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+
+      if (shouldReconnect) startSock()
     }
   })
+}
 
-  sock.ev.on("creds.update", saveCreds)
+startSock()
+
+// 🔹 QR CODE ENDPOINT
+app.get("/qr", async (req, res) => {
+  if (!sock) return res.send("Socket not ready")
+
+  sock.ev.once("connection.update", async (update) => {
+    if (update.qr) {
+      const qrImage = await qrcode.toDataURL(update.qr)
+      res.send(`
+        <h2>Scan QR Code</h2>
+        <img src="${qrImage}" />
+      `)
+    }
+  })
 })
 
-/* =========================
-   PHONE NUMBER PAIRING
-========================= */
-app.post("/pair/number", async (req, res) => {
-  const { number } = req.body
-  if (!number) return res.json({ success: false, error: "Number required" })
+// 🔹 PHONE NUMBER PAIRING
+app.post("/pair", async (req, res) => {
+  try {
+    const { phone } = req.body
+    if (!phone) return res.json({ error: "Phone number required" })
 
-  const sessionId = uuidv4()
-  const sessionPath = `./sessions/${sessionId}`
-  fs.mkdirSync(sessionPath, { recursive: true })
+    if (pairingInProgress) {
+      return res.json({ error: "Pairing already in progress" })
+    }
 
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
+    pairingInProgress = true
 
-  const sock = makeWASocket({
-    auth: state,
-    logger: P({ level: "silent" })
-  })
+    const code = await sock.requestPairingCode(phone)
+    pairingInProgress = false
 
-  const code = await sock.requestPairingCode(number)
+    res.json({
+      success: true,
+      pairingCode: code
+    })
+  } catch (err) {
+    pairingInProgress = false
+    res.json({ error: err.message })
+  }
+})
 
-  sock.ev.on("creds.update", saveCreds)
+// 🔹 SESSION CODE GENERATOR
+app.get("/session", (req, res) => {
+  if (!fs.existsSync(SESSION_DIR)) {
+    return res.json({ error: "No session yet" })
+  }
+
+  const data = Buffer.from(
+    JSON.stringify(fs.readdirSync(SESSION_DIR))
+  ).toString("base64")
 
   res.json({
-    success: true,
-    type: "number",
-    pairingCode: code,
-    sessionId
+    session_code: data
   })
 })
 
-/* ========================= */
-
-app.get("/", (_, res) => {
-  res.send("❄️ Snow Session Server is Running")
+app.listen(PORT, () => {
+  console.log("🚀 Session server running on port", PORT)
 })
-
-const PORT = process.env.PORT || 3000
-app.listen(PORT, () =>
-  console.log("Snow session server running on", PORT)
-)
