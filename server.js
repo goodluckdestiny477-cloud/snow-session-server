@@ -11,14 +11,18 @@ const {
 } = require("@whiskeysockets/baileys")
 
 const app = express()
-app.use(express.json())
 
+// ===== MIDDLEWARE =====
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
+
+// ===== CONFIG =====
 const PORT = process.env.PORT || 3000
 const SESSION_DIR = path.join(__dirname, "auth")
 
 let sock
-let pairingInProgress = false
 let latestQR = null
+let pairingInProgress = false
 
 // ===============================
 // START WHATSAPP SOCKET
@@ -54,23 +58,72 @@ async function startSock() {
 
       console.log("❌ Connection closed. Reconnect:", shouldReconnect)
 
-      if (shouldReconnect) startSock()
+      if (shouldReconnect) {
+        startSock()
+      }
     }
   })
 }
 
-// START SOCKET
+// START ON BOOT
 startSock()
 
 // ===============================
-// HOME ROUTE (FIXES 502)
+// HOME (PREVENT 502)
 // ===============================
 app.get("/", (req, res) => {
   res.send("✅ Snow Session Server is running")
 })
 
 // ===============================
-// QR CODE ROUTE
+// PAIRING UI (OPEN IN BROWSER)
+// ===============================
+app.get("/pair-ui", (req, res) => {
+  res.send(`
+    <h2>WhatsApp Phone Pairing</h2>
+    <form method="POST" action="/pair">
+      <input
+        name="phone"
+        placeholder="234XXXXXXXXXX"
+        required
+      />
+      <button type="submit">Get Pairing Code</button>
+    </form>
+  `)
+})
+
+// ===============================
+// PAIR WITH PHONE NUMBER (POST)
+// ===============================
+app.post("/pair", async (req, res) => {
+  try {
+    const { phone } = req.body
+
+    if (!phone) {
+      return res.send("❌ Phone number required")
+    }
+
+    if (pairingInProgress) {
+      return res.send("⏳ Pairing already in progress")
+    }
+
+    pairingInProgress = true
+    const code = await sock.requestPairingCode(phone)
+    pairingInProgress = false
+
+    res.send(`
+      <h2>Pairing Code</h2>
+      <h1>${code}</h1>
+      <p>Enter this code in WhatsApp</p>
+    `)
+  } catch (err) {
+    pairingInProgress = false
+    res.send("❌ Error: " + err.message)
+  }
+})
+
+// ===============================
+// QR ROUTE (OPTIONAL)
 // ===============================
 app.get("/qr", async (req, res) => {
   if (!latestQR) {
@@ -85,35 +138,7 @@ app.get("/qr", async (req, res) => {
 })
 
 // ===============================
-// PHONE NUMBER PAIRING
-// ===============================
-app.post("/pair", async (req, res) => {
-  try {
-    const { phone } = req.body
-    if (!phone) {
-      return res.json({ error: "Phone number required" })
-    }
-
-    if (pairingInProgress) {
-      return res.json({ error: "Pairing already in progress" })
-    }
-
-    pairingInProgress = true
-    const code = await sock.requestPairingCode(phone)
-    pairingInProgress = false
-
-    res.json({
-      success: true,
-      pairingCode: code
-    })
-  } catch (err) {
-    pairingInProgress = false
-    res.json({ error: err.message })
-  }
-})
-
-// ===============================
-// SESSION CODE GENERATOR
+// SESSION EXPORT
 // ===============================
 app.get("/session", (req, res) => {
   if (!fs.existsSync(SESSION_DIR)) {
@@ -128,6 +153,8 @@ app.get("/session", (req, res) => {
   })
 })
 
+// ===============================
+// START SERVER
 // ===============================
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`)
