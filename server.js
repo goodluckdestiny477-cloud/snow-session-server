@@ -3,6 +3,7 @@ const fs = require("fs")
 const path = require("path")
 const P = require("pino")
 const qrcode = require("qrcode")
+
 const {
   default: makeWASocket,
   useMultiFileAuthState,
@@ -13,12 +14,15 @@ const app = express()
 app.use(express.json())
 
 const PORT = process.env.PORT || 3000
-const SESSION_DIR = "./auth"
+const SESSION_DIR = path.join(__dirname, "auth")
 
 let sock
 let pairingInProgress = false
+let latestQR = null
 
-// 🔹 Start WhatsApp socket
+// ===============================
+// START WHATSAPP SOCKET
+// ===============================
 async function startSock() {
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
@@ -30,51 +34,73 @@ async function startSock() {
 
   sock.ev.on("creds.update", saveCreds)
 
-  sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update
+  sock.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect, qr } = update
+
+    if (qr) {
+      latestQR = qr
+      console.log("📸 QR received")
+    }
 
     if (connection === "open") {
-      console.log("✅ WhatsApp Connected")
+      console.log("✅ WhatsApp connected")
+      latestQR = null
     }
 
     if (connection === "close") {
       const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+        lastDisconnect?.error?.output?.statusCode !==
+        DisconnectReason.loggedOut
 
-      if (shouldReconnect) startSock()
+      console.log("❌ Connection closed. Reconnect:", shouldReconnect)
+
+      if (shouldReconnect) {
+        startSock()
+      }
     }
   })
 }
 
+// START SOCKET ON BOOT
 startSock()
 
-// 🔹 QR CODE ENDPOINT
-app.get("/qr", async (req, res) => {
-  if (!sock) return res.send("Socket not ready")
-
-  sock.ev.once("connection.update", async (update) => {
-    if (update.qr) {
-      const qrImage = await qrcode.toDataURL(update.qr)
-      res.send(`
-        <h2>Scan QR Code</h2>
-        <img src="${qrImage}" />
-      `)
-    }
-  })
+// ===============================
+// HOME ROUTE (PREVENT 502)
+// ===============================
+app.get("/", (req, res) => {
+  res.send("✅ Snow Session Server is running")
 })
 
-// 🔹 PHONE NUMBER PAIRING
+// ===============================
+// QR CODE ROUTE
+// ===============================
+app.get("/qr", async (req, res) => {
+  if (!latestQR) {
+    return res.send("❌ No QR available. Open WhatsApp pairing first.")
+  }
+
+  const qrImage = await qrcode.toDataURL(latestQR)
+  res.send(`
+    <h2>Scan QR Code</h2>
+    <img src="${qrImage}" />
+  `)
+})
+
+// ===============================
+// PHONE NUMBER PAIRING
+// ===============================
 app.post("/pair", async (req, res) => {
   try {
     const { phone } = req.body
-    if (!phone) return res.json({ error: "Phone number required" })
+    if (!phone) {
+      return res.json({ error: "Phone number required" })
+    }
 
     if (pairingInProgress) {
       return res.json({ error: "Pairing already in progress" })
     }
 
     pairingInProgress = true
-
     const code = await sock.requestPairingCode(phone)
     pairingInProgress = false
 
@@ -88,21 +114,23 @@ app.post("/pair", async (req, res) => {
   }
 })
 
-// 🔹 SESSION CODE GENERATOR
+// ===============================
+// SESSION CODE GENERATOR
+// ===============================
 app.get("/session", (req, res) => {
   if (!fs.existsSync(SESSION_DIR)) {
     return res.json({ error: "No session yet" })
   }
 
-  const data = Buffer.from(
-    JSON.stringify(fs.readdirSync(SESSION_DIR))
-  ).toString("base64")
+  const files = fs.readdirSync(SESSION_DIR)
+  const sessionCode = Buffer.from(JSON.stringify(files)).toString("base64")
 
   res.json({
-    session_code: data
+    session_code: sessionCode
   })
 })
 
+// ===============================
 app.listen(PORT, () => {
-  console.log("🚀 Session server running on port", PORT)
+  console.log(`🚀 Server running on port ${PORT}`)
 })
