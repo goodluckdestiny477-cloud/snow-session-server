@@ -163,6 +163,47 @@ app.get("/session", (req, res) => {
   })
 })
 
+// ============================
+// HOME PAGE
+// ============================
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Snowflake Bot</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          text-align: center;
+          padding: 40px;
+          background: #ffffff;
+        }
+        h1 {
+          font-size: 36px;
+          margin-bottom: 10px;
+        }
+        a {
+          display: block;
+          margin: 15px;
+          font-size: 18px;
+          color: #007bff;
+          text-decoration: none;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Welcome to Snowflake Bot</h1>
+      <p>Connect your WhatsApp easily</p>
+
+      <a href="/pair">📱 Pair with Phone Number</a>
+      <a href="/qr">📷 Pair with QR Code</a>
+      <a href="/session">🔑 Get Session Code</a>
+    </body>
+    </html>
+  `)
+})
 // ===========================
 // START SERVER
 // ===========================
