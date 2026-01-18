@@ -24,9 +24,16 @@ let sock
 let latestQR = null
 let pairingInProgress = false
 
-// ===============================
+// ==========================
+// HOME
+// ==========================
+app.get("/", (req, res) => {
+  res.send("✅ Snow Session Server is running")
+})
+
+// ==========================
 // START WHATSAPP SOCKET
-// ===============================
+// ==========================
 async function startSock() {
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR)
 
@@ -43,12 +50,13 @@ async function startSock() {
 
     if (qr) {
       latestQR = qr
-      console.log("📸 QR received")
+      console.log("📷 QR received")
     }
 
     if (connection === "open") {
       console.log("✅ WhatsApp connected")
       latestQR = null
+      pairingInProgress = false
     }
 
     if (connection === "close") {
@@ -56,7 +64,7 @@ async function startSock() {
         lastDisconnect?.error?.output?.statusCode !==
         DisconnectReason.loggedOut
 
-      console.log("❌ Connection closed. Reconnect:", shouldReconnect)
+      console.log("❌ Connection closed")
 
       if (shouldReconnect) {
         startSock()
@@ -65,36 +73,33 @@ async function startSock() {
   })
 }
 
-// START ON BOOT
 startSock()
 
-// ===============================
-// HOME (PREVENT 502)
-// ===============================
-app.get("/", (req, res) => {
-  res.send("✅ Snow Session Server is running")
-})
-
-// ===============================
-// PAIRING UI (OPEN IN BROWSER)
-// ===============================
+// ==========================
+// PAIR WITH PHONE UI
+// ==========================
 app.get("/pair-ui", (req, res) => {
   res.send(`
-    <h2>WhatsApp Phone Pairing</h2>
-    <form method="POST" action="/pair">
-      <input
-        name="phone"
-        placeholder="234XXXXXXXXXX"
-        required
-      />
-      <button type="submit">Get Pairing Code</button>
-    </form>
+    <html>
+      <body style="font-family:Arial;text-align:center">
+        <h2>WhatsApp Phone Pairing</h2>
+        <form method="POST" action="/pair">
+          <input
+            name="phone"
+            placeholder="234XXXXXXXXXX"
+            required
+          />
+          <br/><br/>
+          <button type="submit">Get Pairing Code</button>
+        </form>
+      </body>
+    </html>
   `)
 })
 
-// ===============================
-// PAIR WITH PHONE NUMBER (POST)
-// ===============================
+// ==========================
+// PAIR WITH PHONE (POST)
+// ==========================
 app.post("/pair", async (req, res) => {
   try {
     const { phone } = req.body
@@ -108,13 +113,19 @@ app.post("/pair", async (req, res) => {
     }
 
     pairingInProgress = true
+
     const code = await sock.requestPairingCode(phone)
+
     pairingInProgress = false
 
     res.send(`
-      <h2>Pairing Code</h2>
-      <h1>${code}</h1>
-      <p>Enter this code in WhatsApp</p>
+      <html>
+        <body style="font-family:Arial;text-align:center">
+          <h2>Pairing Code</h2>
+          <h1>${code}</h1>
+          <p>Enter this code in WhatsApp</p>
+        </body>
+      </html>
     `)
   } catch (err) {
     pairingInProgress = false
@@ -122,24 +133,29 @@ app.post("/pair", async (req, res) => {
   }
 })
 
-// ===============================
-// QR ROUTE (OPTIONAL)
-// ===============================
+// ==========================
+// QR ROUTE
+// ==========================
 app.get("/qr", async (req, res) => {
   if (!latestQR) {
-    return res.send("❌ No QR available. Restart service or use pairing.")
+    return res.send("❌ No QR available")
   }
 
   const qrImage = await qrcode.toDataURL(latestQR)
+
   res.send(`
-    <h2>Scan QR Code</h2>
-    <img src="${qrImage}" />
+    <html>
+      <body style="text-align:center;font-family:Arial">
+        <h2>Scan QR Code</h2>
+        <img src="${qrImage}" />
+      </body>
+    </html>
   `)
 })
 
-// ===============================
-// SESSION EXPORT
-// ===============================
+// ==========================
+// SESSION EXPORT (CODE)
+// ==========================
 app.get("/session", (req, res) => {
   if (!fs.existsSync(SESSION_DIR)) {
     return res.json({ error: "No session yet" })
@@ -153,9 +169,9 @@ app.get("/session", (req, res) => {
   })
 })
 
-// ===============================
+// ==========================
 // START SERVER
-// ===============================
+// ==========================
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`)
 })
