@@ -145,7 +145,12 @@ app.get("/session", (req, res) => {
   if (!fs.existsSync(SESSION_DIR)) {
     return res.json({ error: "No session found" })
   }
-
+app.get('/pair', async (req, res) => {
+  res.json({
+    status: true,
+    message: 'Pairing route is working. Use POST with phone number.'
+  });
+});
   const files = fs.readdirSync(SESSION_DIR)
   let sessionData = {}
 
