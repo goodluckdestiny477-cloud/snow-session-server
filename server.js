@@ -204,6 +204,12 @@ app.get("/", (req, res) => {
     </html>
   `)
 })
+// ========================
+// HOME ROUTE (IMPORTANT)
+// ========================
+app.get("/", (req, res) => {
+  res.send("✅ Snow Session Server is running");
+});
 // ===========================
 // START SERVER
 // ===========================
